@@ -1,0 +1,26 @@
+# Virtual environments
+.venv/
+venv/
+pyqt-env/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# Logs and local state
+*.log
+.bidi-popup.lock
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Local desktop overrides (use install-autostart.sh instead)
+rtl-viewer.desktop
