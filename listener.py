@@ -6,21 +6,15 @@ from __future__ import annotations
 import subprocess
 import sys
 import threading
-import time
-from pathlib import Path
 
 from PyQt6.QtCore import QObject, QPoint, pyqtSignal
 from PyQt6.QtGui import QCursor, QIcon
 from PyQt6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
-from pynput import keyboard
 
+from bidi_platform.selection import get_selected_text, missing_dependencies
+from bidi_platform.session import is_wayland, is_x11, session_type
+from bidi_platform.trigger import TriggerServer, send_trigger
 from popup import Popup
-
-ROOT = Path(__file__).resolve().parent
-DEBOUNCE_SEC = 0.4
-
-CTRL_KEYS = frozenset({keyboard.Key.ctrl_l, keyboard.Key.ctrl_r})
-ALT_KEYS = frozenset({keyboard.Key.alt_l, keyboard.Key.alt_r})
 
 
 class HotkeyBridge(QObject):
@@ -38,66 +32,7 @@ def notify(title: str, body: str) -> None:
         pass
 
 
-def get_selected_text() -> str:
-    """Read X11 primary selection first, then clipboard."""
-    for args in (
-        ["xclip", "-o", "-selection", "primary"],
-        ["xclip", "-o", "-selection", "clipboard"],
-    ):
-        try:
-            raw = subprocess.check_output(args, stderr=subprocess.DEVNULL, timeout=2)
-        except (subprocess.CalledProcessError, FileNotFoundError, OSError, subprocess.TimeoutExpired):
-            continue
-        text = raw.decode("utf-8", errors="replace").strip()
-        if text:
-            return text
-    return ""
-
-
-class HotkeyListener:
-    def __init__(self, bridge: HotkeyBridge) -> None:
-        self._bridge = bridge
-        self._pressed: set[keyboard.Key | keyboard.KeyCode] = set()
-        self._combo_was_active = False
-        self._last_trigger = 0.0
-
-    def _ctrl_held(self) -> bool:
-        return bool(self._pressed & CTRL_KEYS)
-
-    def _alt_held(self) -> bool:
-        return bool(self._pressed & ALT_KEYS)
-
-    def _combo_active(self) -> bool:
-        return (
-            self._ctrl_held()
-            and self._alt_held()
-            and keyboard.Key.space in self._pressed
-        )
-
-    def _on_press(self, key: keyboard.Key | keyboard.KeyCode | None) -> None:
-        if key is None:
-            return
-        self._pressed.add(key)
-        active = self._combo_active()
-        if active and not self._combo_was_active:
-            now = time.monotonic()
-            if now - self._last_trigger >= DEBOUNCE_SEC:
-                self._last_trigger = now
-                self._bridge.activated.emit()
-        self._combo_was_active = active
-
-    def _on_release(self, key: keyboard.Key | keyboard.KeyCode | None) -> None:
-        if key is None:
-            return
-        self._pressed.discard(key)
-        self._combo_was_active = self._combo_active()
-
-    def run(self) -> None:
-        with keyboard.Listener(on_press=self._on_press, on_release=self._on_release) as listener:
-            listener.join()
-
-
-class RtlViewerApp:
+class BidiPopupApp:
     def __init__(self) -> None:
         self._app = QApplication(sys.argv)
         self._app.setApplicationName("Bidi Popup")
@@ -108,8 +43,9 @@ class RtlViewerApp:
         self._bridge.activated.connect(self._on_hotkey)
 
         self._setup_tray()
+        self._maybe_wayland_hint()
 
-        thread = threading.Thread(target=self._run_listener, name="hotkey-listener", daemon=True)
+        thread = threading.Thread(target=self._run_listeners, name="hotkey-listener", daemon=True)
         thread.start()
 
     def _setup_tray(self) -> None:
@@ -118,7 +54,8 @@ class RtlViewerApp:
             icon = QIcon.fromTheme("text-editor")
 
         self._tray = QSystemTrayIcon(icon)
-        self._tray.setToolTip("Bidi Popup — Ctrl+Alt+Space")
+        hotkey = "Ctrl+Alt+Space" if is_x11() else "shortcut (see README)"
+        self._tray.setToolTip(f"Bidi Popup — {hotkey}")
 
         menu = QMenu()
         menu.addAction("Show last popup", self._show_popup)
@@ -127,8 +64,27 @@ class RtlViewerApp:
         self._tray.setContextMenu(menu)
         self._tray.show()
 
-    def _run_listener(self) -> None:
-        HotkeyListener(self._bridge).run()
+    def _maybe_wayland_hint(self) -> None:
+        if not is_wayland():
+            return
+        notify(
+            "Bidi Popup",
+            "Wayland: یک‌بار ./install-shortcut.sh را اجرا کن تا Ctrl+Alt+Space تنظیم شود",
+        )
+
+    def _run_listeners(self) -> None:
+        TriggerServer(self._bridge.activated.emit).start()
+
+        if is_x11():
+            try:
+                from bidi_platform.hotkey_x11 import run_x11_hotkey
+
+                run_x11_hotkey(self._bridge)
+            except Exception as exc:
+                print(f"bidi-popup: X11 hotkey unavailable ({exc})", file=sys.stderr)
+                threading.Event().wait()
+        else:
+            threading.Event().wait()
 
     def _show_popup(self) -> None:
         if self._popup is not None:
@@ -168,10 +124,21 @@ class RtlViewerApp:
 
 
 def main() -> int:
-    if subprocess.run(["which", "xclip"], capture_output=True).returncode != 0:
-        print("bidi-popup: install xclip first (sudo apt install xclip)", file=sys.stderr)
+    if len(sys.argv) > 1 and sys.argv[1] == "trigger":
+        return 0 if send_trigger() else 1
+
+    missing = missing_dependencies()
+    if missing:
+        pkgs = " ".join(missing)
+        sess = session_type()
+        print(
+            f"bidi-popup: install required packages for {sess} session:\n"
+            f"  sudo apt install {pkgs}",
+            file=sys.stderr,
+        )
         return 1
-    return RtlViewerApp().run()
+
+    return BidiPopupApp().run()
 
 
 if __name__ == "__main__":

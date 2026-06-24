@@ -1,10 +1,10 @@
 # Bidi Popup
 
-ابزاری سبک برای **لینوکس (X11)** که متن انتخاب‌شده را در یک **پنجره راست‌چین** نشان می‌دهد — مخصوص خواندن متن مخلوط **فارسی/انگلیسی** (یا عربی/عبری) داخل برنامه‌هایی که راست‌چین را درست نشان نمی‌دهند (IDE، مرورگر، چت AI و …).
+ابزاری سبک برای **لینوکس (X11 و Wayland)** که متن انتخاب‌شده را در یک **پنجره راست‌چین** نشان می‌دهد — مخصوص خواندن متن مخلوط **فارسی/انگلیسی** (یا عربی/عبری) داخل برنامه‌هایی که راست‌چین را درست نشان نمی‌دهند (IDE، مرورگر، چت AI و …).
 
 با **`Ctrl+Alt+Space`** یک پنجره شبیه macOS کنار موس باز می‌شود و متن را درست و راست‌چین می‌بینی.
 
-[![Platform](https://img.shields.io/badge/پلتفرم-Linux%20(X11)-blue)](https://github.com/ha3san/bidi-popup)
+[![Platform](https://img.shields.io/badge/پلتفرم-Linux%20(X11%20%7C%20Wayland)-blue)](https://github.com/ha3san/bidi-popup)
 [![Python](https://img.shields.io/badge/Python-3.10+-green)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-MIT-lightgrey)](LICENSE)
 
@@ -16,7 +16,8 @@
 
 ## امکانات
 
-- میانبر سراسری: `Ctrl+Alt+Space` (Ctrl و Alt چپ یا راست)
+- میانبر: `Ctrl+Alt+Space`
+- پشتیبانی **X11** و **Wayland**
 - خواندن **متن انتخاب‌شده** (highlight) یا **کلیپ‌بورد** (`Ctrl+C`)
 - ظاهر شبیه macOS: دکمه‌های قرمز/زرد/سبز، drag، resize، سایه
 - تعویض RTL/LTR، اندازه فونت، تم روشن/تاریک (هماهنگ با GNOME)
@@ -27,14 +28,25 @@
 
 ## پیش‌نیازها
 
-- اوبونتو یا توزیع مشابه با **X11** (فعلاً Wayland پشتیبانی نمی‌شود)
+- اوبونتو یا توزیع مشابه لینوکس
 - Python **۳.۱۰+**
+- محیط گرافیکی **X11** یا **Wayland**
 
 ### بسته‌های سیستمی
 
+**X11:**
 ```bash
-sudo apt update
 sudo apt install -y python3-venv python3-pip xclip
+```
+
+**Wayland:**
+```bash
+sudo apt install -y python3-venv python3-pip wl-clipboard
+```
+
+**هر دو (پیشنهادی):**
+```bash
+sudo apt install -y python3-venv python3-pip xclip wl-clipboard
 ```
 
 ### فونت فارسی (پیشنهادی)
@@ -42,6 +54,15 @@ sudo apt install -y python3-venv python3-pip xclip
 ```bash
 sudo apt install -y fonts-vazirmatn
 ```
+
+### نوع session تو
+
+```bash
+echo $XDG_SESSION_TYPE
+```
+
+- `x11` → hotkey خودکار کار می‌کند
+- `wayland` → بعد از نصب، یک‌بار `install-shortcut.sh` لازم است
 
 ---
 
@@ -55,7 +76,7 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
-chmod +x start.sh install-autostart.sh
+chmod +x start.sh install-autostart.sh install-shortcut.sh
 ```
 
 ---
@@ -64,10 +85,20 @@ chmod +x start.sh install-autostart.sh
 
 ### روزمره
 
-1. متن را در هر برنامه **انتخاب** کن (highlight) — یا با `Ctrl+C` کپی کن
-2. **`Ctrl+Alt+Space`** را بزن
-3. متن را **راست‌چین** در پنجره بخوان
-4. با **`Esc`** یا دکمهٔ قرمز (×) ببند
+1. برنامه را اجرا کن: `./start.sh`
+2. متن را در هر برنامه **انتخاب** کن (highlight) — یا با `Ctrl+C` کپی کن
+3. **`Ctrl+Alt+Space`** را بزن
+4. متن را **راست‌چین** در پنجره بخوان
+5. با **`Esc`** یا دکمهٔ قرمز (×) ببند
+
+### X11 vs Wayland
+
+| محیط | hotkey چطور کار می‌کند |
+|------|------------------------|
+| **X11** | خودکار — نیازی به تنظیم اضافه نیست |
+| **Wayland (GNOME)** | یک‌بار `./install-shortcut.sh` بزن |
+
+روی Wayland، shortcut از طریق GNOME به `./start.sh trigger` وصل می‌شود.
 
 ### میانبرهای داخل پنجره
 
@@ -94,25 +125,33 @@ chmod +x start.sh install-autostart.sh
 ./install-autostart.sh
 ```
 
-این دستور فایل `~/.config/autostart/bidi-popup.desktop` را با مسیر درست نصب می‌کند.
+### تنظیم shortcut روی Wayland (GNOME)
+
+```bash
+./install-shortcut.sh
+```
+
+این دستور `Ctrl+Alt+Space` را در تنظیمات کیبورد GNOME ثبت می‌کند.
 
 ---
 
 ## ساختار پروژه
 
-| فایل | کار |
-|------|-----|
-| `listener.py` | گوش دادن به hotkey + آیکون کنار ساعت |
+| فایل / پوشه | کار |
+|-------------|-----|
+| `listener.py` | سرویس پس‌زمینه + tray |
 | `popup.py` | رابط پنجره |
 | `theme.py` | تم روشن/تاریک |
-| `start.sh` | اجرای برنامه |
-| `install-autostart.sh` | نصب autostart |
+| `bidi_platform/` | تشخیص X11/Wayland، selection، trigger |
+| `start.sh` | اجرا / `trigger` |
+| `install-autostart.sh` | autostart |
+| `install-shortcut.sh` | shortcut GNOME (Wayland) |
 
 ## محدودیت‌ها
 
-- فقط **X11** — Wayland هنوز پشتیبانی نمی‌شود
-- برای خواندن selection به `xclip` نیاز است
-- در بعضی سیستم‌ها hotkey سراسری ممکن است به مجوز خاص نیاز داشته باشد
+- hotkey خودکار روی Wayland فقط با shortcut دسکتاپ (GNOME: `install-shortcut.sh`)
+- KDE و compositorهای دیگر: shortcut را دستی به `./start.sh trigger` وصل کن
+- روی Wayland باید `./start.sh` قبل از shortcut در حال اجرا باشد
 
 ## لایسنس
 
@@ -123,45 +162,36 @@ chmod +x start.sh install-autostart.sh
 
 # English
 
-A lightweight **Linux (X11)** tool that shows selected text in a **right-to-left popup** — ideal for mixed Persian/English, Arabic, or Hebrew text in LTR apps.
+A lightweight **Linux (X11 & Wayland)** tool that shows selected text in a **right-to-left popup**.
 
 Press **`Ctrl+Alt+Space`** to open a macOS-style RTL popup near your cursor.
 
-## Features
+## Platform notes
 
-- Global hotkey: `Ctrl+Alt+Space`
-- Primary selection or clipboard (`Ctrl+C`)
-- macOS-style UI, RTL/LTR toggle, font size, light/dark theme
-- Markdown rendering, search, system tray, autostart
+| Session | Hotkey |
+|---------|--------|
+| X11 | Built-in (`pynput`) |
+| Wayland (GNOME) | Run `./install-shortcut.sh` once |
 
 ## Requirements
 
 ```bash
-sudo apt install python3-venv python3-pip xclip
-sudo apt install fonts-vazirmatn   # optional Persian font
+sudo apt install python3-venv python3-pip xclip wl-clipboard
+sudo apt install fonts-vazirmatn   # optional
 ```
 
-## Install
+## Install & run
 
 ```bash
 git clone https://github.com/ha3san/bidi-popup.git
 cd bidi-popup
-python3 -m venv .venv
-source .venv/bin/activate
+python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-chmod +x start.sh install-autostart.sh
-```
+chmod +x start.sh install-autostart.sh install-shortcut.sh
 
-## Usage
-
-1. Highlight text (or `Ctrl+C`)
-2. Press `Ctrl+Alt+Space`
-3. Read RTL-aligned text
-4. Press `Esc` or the red button to close
-
-```bash
-./start.sh                  # run
-./install-autostart.sh      # autostart on login
+./start.sh
+./install-autostart.sh    # autostart on login
+./install-shortcut.sh     # Wayland / GNOME shortcut
 ```
 
 ## License
