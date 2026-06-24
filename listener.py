@@ -6,6 +6,7 @@ from __future__ import annotations
 import subprocess
 import sys
 import threading
+from pathlib import Path
 
 from PyQt6.QtCore import QObject, QPoint, pyqtSignal
 from PyQt6.QtGui import QCursor, QIcon
@@ -16,20 +17,36 @@ from bidi_platform.session import is_wayland, is_x11, session_type
 from bidi_platform.trigger import TriggerServer, send_trigger
 from popup import Popup
 
+ROOT = Path(__file__).resolve().parent
+ICON_PATH = ROOT / "assets" / "icon.svg"
 
-class HotkeyBridge(QObject):
-    activated = pyqtSignal()
+
+def app_icon() -> QIcon:
+    if ICON_PATH.is_file():
+        icon = QIcon(str(ICON_PATH))
+        if not icon.isNull():
+            return icon
+    for name in ("accessories-text-editor", "text-editor"):
+        icon = QIcon.fromTheme(name)
+        if not icon.isNull():
+            return icon
+    return QIcon()
 
 
 def notify(title: str, body: str) -> None:
+    icon_arg = ["-i", str(ICON_PATH)] if ICON_PATH.is_file() else ["-i", "accessories-text-editor"]
     try:
         subprocess.run(
-            ["notify-send", "-a", "bidi-popup", "-i", "accessories-text-editor", title, body],
+            ["notify-send", "-a", "bidi-popup", *icon_arg, title, body],
             check=False,
             timeout=3,
         )
     except (FileNotFoundError, OSError):
         pass
+
+
+class HotkeyBridge(QObject):
+    activated = pyqtSignal()
 
 
 class BidiPopupApp:
@@ -49,11 +66,7 @@ class BidiPopupApp:
         thread.start()
 
     def _setup_tray(self) -> None:
-        icon = QIcon.fromTheme("accessories-text-editor")
-        if icon.isNull():
-            icon = QIcon.fromTheme("text-editor")
-
-        self._tray = QSystemTrayIcon(icon)
+        self._tray = QSystemTrayIcon(app_icon())
         hotkey = "Ctrl+Alt+Space" if is_x11() else "shortcut (see README)"
         self._tray.setToolTip(f"Bidi Popup — {hotkey}")
 

@@ -51,6 +51,7 @@ FONT_CANDIDATES = (
 SETTINGS_ORG = "bidi-popup"
 SETTINGS_APP = "bidi-popup"
 RESIZE_MARGIN = 8
+SHADOW_MARGIN = 16
 MIN_WIDTH = 360
 MIN_HEIGHT = 220
 
@@ -217,6 +218,32 @@ class MacTitleBar(QWidget):
         super().mouseDoubleClickEvent(event)
 
 
+class ResizeRail(QWidget):
+    """Transparent strip on the frame edge — always receives resize mouse events."""
+
+    def __init__(self, popup: "Popup", edges: int) -> None:
+        super().__init__(popup)
+        self._popup = popup
+        self._edges = edges
+        self.setCursor(popup._cursor_for_edges(edges))
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._popup._start_resize(self._edges, event.globalPosition().toPoint())
+            event.accept()
+
+    def mouseMoveEvent(self, event) -> None:
+        if self._popup._resizing:
+            self._popup._apply_resize(event.globalPosition().toPoint())
+            event.accept()
+
+    def mouseReleaseEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._popup._end_resize()
+            event.accept()
+
+
 class Popup(QWidget):
     def __init__(
         self,
@@ -293,6 +320,10 @@ class Popup(QWidget):
         self._toast.setObjectName("ToastLabel")
         self._toast.hide()
         self._toast.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        self._rails: list[ResizeRail] = []
+        for edges in (LEFT, RIGHT, TOP, BOTTOM, LEFT | TOP, RIGHT | TOP, LEFT | BOTTOM, RIGHT | BOTTOM):
+            self._rails.append(ResizeRail(self, edges))
 
         self._apply_theme()
         self._apply_font()
@@ -461,6 +492,7 @@ class Popup(QWidget):
                 self._title_bar._btn_max._color,
                 self._title_bar._btn_max._icon_color,
             )
+        self._sync_resize_rails()
 
     def _restore_geometry(self, anchor: QPoint | None) -> None:
         saved = self._settings.value("geometry")
@@ -498,22 +530,64 @@ class Popup(QWidget):
             geo.center().y() - self.height() // 2,
         )
 
-    def _edge_at(self, pos: QPoint) -> int:
+    def _sync_resize_rails(self) -> None:
         if self._maximized:
-            return 0
-        x, y = pos.x(), pos.y()
-        w, h = self.width(), self.height()
+            for rail in self._rails:
+                rail.hide()
+            return
+
+        fr = self._frame.geometry()
         m = RESIZE_MARGIN
-        edges = 0
-        if x <= m:
-            edges |= LEFT
-        if x >= w - m:
-            edges |= RIGHT
-        if y <= m:
-            edges |= TOP
-        if y >= h - m:
-            edges |= BOTTOM
-        return edges
+        side_h = max(1, fr.height() - 2 * m)
+        side_w = max(1, fr.width() - 2 * m)
+        placements: dict[int, tuple[int, int, int, int]] = {
+            LEFT: (fr.left() - m, fr.top() + m, 2 * m, side_h),
+            RIGHT: (fr.right() - m + 1, fr.top() + m, 2 * m, side_h),
+            TOP: (fr.left() + m, fr.top() - m, side_w, 2 * m),
+            BOTTOM: (fr.left() + m, fr.bottom() - m + 1, side_w, 2 * m),
+            LEFT | TOP: (fr.left() - m, fr.top() - m, 2 * m, 2 * m),
+            RIGHT | TOP: (fr.right() - m + 1, fr.top() - m, 2 * m, 2 * m),
+            LEFT | BOTTOM: (fr.left() - m, fr.bottom() - m + 1, 2 * m, 2 * m),
+            RIGHT | BOTTOM: (fr.right() - m + 1, fr.bottom() - m + 1, 2 * m, 2 * m),
+        }
+        for rail in self._rails:
+            rail.setGeometry(*placements[rail._edges])
+            rail.show()
+            rail.raise_()
+
+    def _start_resize(self, edges: int, global_pos: QPoint) -> None:
+        self._resizing = True
+        self._resize_edges = edges
+        self._resize_origin = global_pos
+        self._geom_origin = self.geometry()
+        self.grabMouse()
+
+    def _apply_resize(self, global_pos: QPoint) -> None:
+        if not self._resizing:
+            return
+        delta = global_pos - self._resize_origin
+        geo = QRect(self._geom_origin)
+        if self._resize_edges & RIGHT:
+            geo.setWidth(max(MIN_WIDTH, self._geom_origin.width() + delta.x()))
+        if self._resize_edges & BOTTOM:
+            geo.setHeight(max(MIN_HEIGHT, self._geom_origin.height() + delta.y()))
+        if self._resize_edges & LEFT:
+            new_w = max(MIN_WIDTH, self._geom_origin.width() - delta.x())
+            geo.setX(self._geom_origin.x() + self._geom_origin.width() - new_w)
+            geo.setWidth(new_w)
+        if self._resize_edges & TOP:
+            new_h = max(MIN_HEIGHT, self._geom_origin.height() - delta.y())
+            geo.setY(self._geom_origin.y() + self._geom_origin.height() - new_h)
+            geo.setHeight(new_h)
+        self.setGeometry(geo)
+
+    def _end_resize(self) -> None:
+        if not self._resizing:
+            return
+        self._resizing = False
+        self._resize_edges = 0
+        self.releaseMouse()
+        self._sync_resize_rails()
 
     def _cursor_for_edges(self, edges: int) -> Qt.CursorShape:
         if edges in (LEFT | TOP, RIGHT | BOTTOM):
@@ -526,50 +600,23 @@ class Popup(QWidget):
             return Qt.CursorShape.SizeVerCursor
         return Qt.CursorShape.ArrowCursor
 
-    def mousePressEvent(self, event) -> None:
-        if event.button() == Qt.MouseButton.LeftButton:
-            edges = self._edge_at(event.position().toPoint())
-            if edges:
-                self._resizing = True
-                self._resize_edges = edges
-                self._resize_origin = event.globalPosition().toPoint()
-                self._geom_origin = self.geometry()
-                event.accept()
-                return
-        super().mousePressEvent(event)
-
     def mouseMoveEvent(self, event) -> None:
         if self._resizing:
-            delta = event.globalPosition().toPoint() - self._resize_origin
-            geo = QRect(self._geom_origin)
-            if self._resize_edges & RIGHT:
-                geo.setWidth(max(MIN_WIDTH, self._geom_origin.width() + delta.x()))
-            if self._resize_edges & BOTTOM:
-                geo.setHeight(max(MIN_HEIGHT, self._geom_origin.height() + delta.y()))
-            if self._resize_edges & LEFT:
-                new_w = max(MIN_WIDTH, self._geom_origin.width() - delta.x())
-                geo.setX(self._geom_origin.x() + self._geom_origin.width() - new_w)
-                geo.setWidth(new_w)
-            if self._resize_edges & TOP:
-                new_h = max(MIN_HEIGHT, self._geom_origin.height() - delta.y())
-                geo.setY(self._geom_origin.y() + self._geom_origin.height() - new_h)
-                geo.setHeight(new_h)
-            self.setGeometry(geo)
+            self._apply_resize(event.globalPosition().toPoint())
             event.accept()
             return
-
-        edges = self._edge_at(event.position().toPoint())
-        self.setCursor(self._cursor_for_edges(edges))
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event) -> None:
         if event.button() == Qt.MouseButton.LeftButton and self._resizing:
-            self._resizing = False
-            self._resize_edges = 0
-            self.setCursor(Qt.CursorShape.ArrowCursor)
+            self._end_resize()
             event.accept()
             return
         super().mouseReleaseEvent(event)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._sync_resize_rails()
 
     def eventFilter(self, obj, event) -> bool:
         if obj is self._box and event.type() == event.Type.KeyPress:
@@ -584,6 +631,7 @@ class Popup(QWidget):
                 self._find_input.setFocus()
                 self._find_prev()
                 return True
+
         return super().eventFilter(obj, event)
 
     def _find_prev(self) -> None:
@@ -613,6 +661,7 @@ class Popup(QWidget):
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
+        self._sync_resize_rails()
         self._box.setFocus()
 
 

@@ -2,6 +2,7 @@
 Type=Application
 Name=Bidi Popup
 Comment=Show selected text right-to-left with Ctrl+Alt+Space
+Icon=INSTALL_DIR/assets/icon.svg
 Exec=INSTALL_DIR/start.sh
 Path=INSTALL_DIR
 Terminal=false

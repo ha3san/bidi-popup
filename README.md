@@ -4,6 +4,8 @@
 
 با **`Ctrl+Alt+Space`** یک پنجره شبیه macOS کنار موس باز می‌شود و متن را درست و راست‌چین می‌بینی.
 
+![Bidi Popup — پیش‌نمایش](docs/demo-poster.png)
+
 [![Platform](https://img.shields.io/badge/پلتفرم-Linux%20(X11%20%7C%20Wayland)-blue)](https://github.com/ha3san/bidi-popup)
 [![Python](https://img.shields.io/badge/Python-3.10+-green)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-MIT-lightgrey)](LICENSE)
@@ -68,6 +70,15 @@ echo $XDG_SESSION_TYPE
 
 ## نصب
 
+**سریع (یک اسکریپت):**
+```bash
+git clone https://github.com/ha3san/bidi-popup.git
+cd bidi-popup
+chmod +x install.sh
+./install.sh
+```
+
+**دستی:**
 ```bash
 git clone https://github.com/ha3san/bidi-popup.git
 cd bidi-popup
@@ -146,6 +157,8 @@ chmod +x start.sh install-autostart.sh install-shortcut.sh
 | `start.sh` | اجرا / `trigger` |
 | `install-autostart.sh` | autostart |
 | `install-shortcut.sh` | shortcut GNOME (Wayland) |
+| `install.sh` | نصب خودکار venv + وابستگی‌ها |
+| `assets/icon.svg` | آیکون اپلیکیشن |
 
 ## محدودیت‌ها
 
