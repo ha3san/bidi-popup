@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Bidi Popup
+Comment=Show selected text right-to-left with Ctrl+Alt+Space
+Exec=INSTALL_DIR/start.sh
+Path=INSTALL_DIR
+Terminal=false
+Categories=Utility;TextTools;
+StartupNotify=false
+X-GNOME-Autostart-enabled=true
