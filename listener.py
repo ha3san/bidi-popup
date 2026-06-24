@@ -98,7 +98,7 @@ class BidiPopupApp:
             anchor = QPoint(QCursor.pos())
 
             if not text:
-                notify("Bidi Popup", "متنی انتخاب نشده — اول متن را highlight کن یا Ctrl+C بزن")
+                notify("Bidi Popup", "متنی انتخاب نشده — اول متن را highlight کن")
                 return
 
             if self._popup is not None and self._popup.isVisible():

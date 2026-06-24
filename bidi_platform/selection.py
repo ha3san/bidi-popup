@@ -1,4 +1,4 @@
-"""Read selected text from X11 or Wayland clipboard APIs."""
+"""Read primary selection from X11 or Wayland."""
 
 from __future__ import annotations
 
@@ -17,28 +17,10 @@ def _run_reader(args: list[str]) -> str:
 
 
 def get_selected_text() -> str:
-    """Primary selection first, then clipboard."""
+    """Read highlighted text from the primary selection."""
     if is_wayland():
-        readers = (
-            ["wl-paste", "--primary"],
-            ["wl-paste"],
-        )
-    else:
-        readers = (
-            ["xclip", "-o", "-selection", "primary"],
-            ["xclip", "-o", "-selection", "clipboard"],
-        )
-
-    seen: set[tuple[str, ...]] = set()
-    for args in readers:
-        key = tuple(args)
-        if key in seen:
-            continue
-        seen.add(key)
-        text = _run_reader(args)
-        if text:
-            return text
-    return ""
+        return _run_reader(["wl-paste", "--primary"])
+    return _run_reader(["xclip", "-o", "-selection", "primary"])
 
 
 def missing_dependencies() -> list[str]:

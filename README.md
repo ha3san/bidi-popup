@@ -18,7 +18,7 @@
 
 - میانبر: `Ctrl+Alt+Space`
 - پشتیبانی **X11** و **Wayland**
-- خواندن **متن انتخاب‌شده** (highlight) یا **کلیپ‌بورد** (`Ctrl+C`)
+- خواندن **متن انتخاب‌شده** (highlight) — بدون نیاز به Ctrl+C
 - ظاهر شبیه macOS: دکمه‌های قرمز/زرد/سبز، drag، resize، سایه
 - تعویض RTL/LTR، اندازه فونت، تم روشن/تاریک (هماهنگ با GNOME)
 - رندر Markdown اگر متن شبیه markdown باشد
@@ -86,7 +86,7 @@ chmod +x start.sh install-autostart.sh install-shortcut.sh
 ### روزمره
 
 1. برنامه را اجرا کن: `./start.sh`
-2. متن را در هر برنامه **انتخاب** کن (highlight) — یا با `Ctrl+C` کپی کن
+2. متن را در هر برنامه **انتخاب** کن (highlight)
 3. **`Ctrl+Alt+Space`** را بزن
 4. متن را **راست‌چین** در پنجره بخوان
 5. با **`Esc`** یا دکمهٔ قرمز (×) ببند
@@ -105,7 +105,7 @@ chmod +x start.sh install-autostart.sh install-shortcut.sh
 | کلید | کار |
 |------|-----|
 | `Esc` | بستن پنجره |
-| `Ctrl+C` | کپی متن |
+| `Ctrl+C` | کپی متن از پنجره |
 | `Ctrl+F` | جستجو در متن |
 | `Ctrl+=` / `Ctrl+-` | بزرگ‌تر / کوچک‌تر کردن فونت |
 

@@ -228,7 +228,10 @@ class Popup(QWidget):
         self._settings = QSettings(SETTINGS_ORG, SETTINGS_APP)
         self._anchor = anchor
         self._rtl = self._settings.value("rtl", True, type=bool)
-        self._theme_mode = self._settings.value("theme", "auto", type=str)
+        theme = self._settings.value("theme", "dark", type=str)
+        if theme == "auto":
+            theme = "dark"
+        self._theme_mode = theme
         self._font_size = self._settings.value("font_size", 12, type=int)
         self._maximized = False
         self._normal_geometry = QRect()
