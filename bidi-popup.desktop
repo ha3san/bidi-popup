@@ -6,6 +6,7 @@ Icon=INSTALL_DIR/assets/icon.svg
 Exec=INSTALL_DIR/start.sh
 Path=INSTALL_DIR
 Terminal=false
+Hidden=false
 Categories=Utility;TextTools;
 StartupNotify=false
 X-GNOME-Autostart-enabled=true

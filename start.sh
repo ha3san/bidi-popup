@@ -3,6 +3,15 @@ set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# systemd/autostart may not set DISPLAY; pick the active X11 socket.
+if [[ -z "${DISPLAY:-}" ]]; then
+  for sock in /tmp/.X11-unix/X*; do
+    [[ -S "${sock}" ]] || continue
+    export DISPLAY=":${sock##*/X}"
+    break
+  done
+fi
+
 # Prefer .venv (documented install); fall back to pyqt-env for local dev.
 for VENV_DIR in ".venv" "pyqt-env"; do
   PYTHON="${DIR}/${VENV_DIR}/bin/python"

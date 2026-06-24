@@ -18,7 +18,7 @@ echo "==> Installing Python dependencies"
 .venv/bin/pip install -U pip wheel
 .venv/bin/pip install -r requirements.txt
 
-chmod +x start.sh install-autostart.sh install-shortcut.sh listener.py
+chmod +x start.sh install-autostart.sh install-shortcut.sh install-service.sh listener.py
 
 SESSION="${XDG_SESSION_TYPE:-unknown}"
 echo ""

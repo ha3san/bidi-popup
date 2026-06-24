@@ -1,0 +1,13 @@
+[Unit]
+Description=Bidi Popup — RTL text hotkey
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=INSTALL_DIR/start.sh
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=graphical-session.target

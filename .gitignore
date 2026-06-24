@@ -11,9 +11,15 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
 
 # Logs and local state
 *.log
+.cursor/
 .bidi-popup.lock
 
 # OS / editor
@@ -21,6 +27,7 @@ build/
 .idea/
 .vscode/
 *.swp
+*~
 
 # Local dev / scratch
 test_pyqt.py
