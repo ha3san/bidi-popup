@@ -1,12 +1,13 @@
 # Bidi Popup
 
-ابزاری سبک برای **لینوکس (X11 و Wayland)** که متن انتخاب‌شده را در یک **پنجره راست‌چین** نشان می‌دهد — مخصوص خواندن متن مخلوط **فارسی/انگلیسی** (یا عربی/عبری) داخل برنامه‌هایی که راست‌چین را درست نشان نمی‌دهند (IDE، مرورگر، چت AI و …).
+ابزاری سبک برای **لینوکس** (طراحی‌شده برای X11 و Wayland؛ **تست اصلی روی X11**) که متن انتخاب‌شده را در یک **پنجره راست‌چین** نشان می‌دهد — مخصوص خواندن متن مخلوط **فارسی/انگلیسی** (یا عربی/عبری) داخل برنامه‌هایی که راست‌چین را درست نشان نمی‌دهند (IDE، مرورگر، چت AI و …).
 
 با **`Ctrl+Alt+Space`** یک پنجره شبیه macOS کنار موس باز می‌شود و متن را درست و راست‌چین می‌بینی.
 
 ![Bidi Popup — پیش‌نمایش](docs/demo-poster.png)
 
-[![Platform](https://img.shields.io/badge/پلتفرم-Linux%20(X11%20%7C%20Wayland)-blue)](https://github.com/ha3san/bidi-popup)
+[![Platform](https://img.shields.io/badge/X11-tested-green)](https://github.com/ha3san/bidi-popup)
+[![Wayland](https://img.shields.io/badge/Wayland-experimental-orange)](https://github.com/ha3san/bidi-popup)
 [![Python](https://img.shields.io/badge/Python-3.10+-green)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-MIT-lightgrey)](LICENSE)
 
@@ -19,7 +20,7 @@
 ## امکانات
 
 - میانبر: `Ctrl+Alt+Space`
-- پشتیبانی **X11** و **Wayland**
+- **X11** (تست‌شده) و **Wayland** (آزمایشی — کد پشتیبانی دارد)
 - خواندن **متن انتخاب‌شده** (highlight) — بدون نیاز به Ctrl+C
 - ظاهر شبیه macOS: دکمه‌های قرمز/زرد/سبز، drag، resize، سایه
 - تعویض RTL/LTR، اندازه فونت، تم روشن/تاریک (هماهنگ با GNOME)
@@ -166,6 +167,23 @@ chmod +x start.sh install-autostart.sh install-shortcut.sh
 - KDE و compositorهای دیگر: shortcut را دستی به `./start.sh trigger` وصل کن
 - روی Wayland باید `./start.sh` قبل از shortcut در حال اجرا باشد
 
+## تست و پشتیبانی
+
+| محیط | وضعیت |
+|------|--------|
+| **X11** (اوبونتو) | ✅ توسط نگهدارنده تست شده |
+| **Wayland (GNOME)** | ⚠️ کد پشتیبانی دارد؛ روی محیط نگهدارنده تست نشده |
+| **KDE / سایر compositorها** | ⚠️ تست نشده — shortcut را دستی تنظیم کنید |
+
+اگر روی محیطی غیر از موارد بالا نصب کردید یا به مشکل خوردید، لطفاً [Issue باز کنید](https://github.com/ha3san/bidi-popup/issues/new/choose) و این‌ها را بنویسید:
+
+- توزیع لینوکس و نسخه
+- خروجی `echo $XDG_SESSION_TYPE`
+- دسکتاپ (GNOME، KDE، …)
+- مراحل بازتولید مشکل
+
+بازخورد و گزارش باگ کمک می‌کند تا پشتیبانی واقعی گسترش پیدا کند.
+
 ## لایسنس
 
 [MIT](LICENSE)
@@ -175,7 +193,7 @@ chmod +x start.sh install-autostart.sh install-shortcut.sh
 
 # English
 
-A lightweight **Linux (X11 & Wayland)** tool that shows selected text in a **right-to-left popup**.
+A lightweight **Linux** tool (designed for X11 & Wayland; **primarily tested on X11**) that shows selected text in a **right-to-left popup**.
 
 Press **`Ctrl+Alt+Space`** to open a macOS-style RTL popup near your cursor.
 
@@ -183,8 +201,18 @@ Press **`Ctrl+Alt+Space`** to open a macOS-style RTL popup near your cursor.
 
 | Session | Hotkey |
 |---------|--------|
-| X11 | Built-in (`pynput`) |
-| Wayland (GNOME) | Run `./install-shortcut.sh` once |
+| X11 | Built-in (`pynput`) — tested by maintainer |
+| Wayland (GNOME) | Run `./install-shortcut.sh` once — experimental, not tested by maintainer |
+
+## Testing & support
+
+| Environment | Status |
+|-------------|--------|
+| **X11** (Ubuntu) | ✅ Tested by maintainer |
+| **Wayland (GNOME)** | ⚠️ Code path exists; not tested by maintainer |
+| **KDE / other compositors** | ⚠️ Untested — configure shortcut to `./start.sh trigger` manually |
+
+If something breaks on your setup, please [open an issue](https://github.com/ha3san/bidi-popup/issues/new/choose) with your distro, `echo $XDG_SESSION_TYPE`, desktop environment, and steps to reproduce.
 
 ## Requirements
 

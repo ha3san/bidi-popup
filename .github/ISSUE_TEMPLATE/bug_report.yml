@@ -1,0 +1,67 @@
+name: گزارش باگ / Bug report
+description: مشکل در نصب، اجرا، یا نمایش متن
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        لطفاً قبل از ارسال، [بخش تست و پشتیبانی](https://github.com/ha3san/bidi-popup#تست-و-پشتیبانی) README را ببینید.
+        Please include environment details — it helps a lot.
+
+  - type: input
+    id: distro
+    attributes:
+      label: توزیع لینوکس / Linux distro
+      placeholder: "Ubuntu 24.04"
+    validations:
+      required: true
+
+  - type: input
+    id: session
+    attributes:
+      label: Session type (`echo $XDG_SESSION_TYPE`)
+      placeholder: "x11 or wayland"
+    validations:
+      required: true
+
+  - type: input
+    id: desktop
+    attributes:
+      label: دسکتاپ / Desktop environment
+      placeholder: "GNOME, KDE, …"
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: مراحل بازتولید / Steps to reproduce
+      placeholder: |
+        1. ./start.sh
+        2. Select text in …
+        3. Press Ctrl+Alt+Space
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: انتظار / Expected behavior
+    validations:
+      required: false
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: واقعیت / What actually happened
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: خروجی ترمینال یا لاگ / Terminal output
+      render: shell
+    validations:
+      required: false
