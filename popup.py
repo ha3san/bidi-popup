@@ -38,28 +38,21 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from app_settings import FONT_CANDIDATES, SETTINGS_APP, SETTINGS_ORG, AppSettings
+from layout_utils import compute_popup_size
 from theme import Palette, build_stylesheet, resolve_palette
 
-FONT_CANDIDATES = (
-    "Vazirmatn",
-    "Noto Sans Arabic",
-    "Iranian Sans",
-    "Tahoma",
-    "DejaVu Sans",
-)
-
-SETTINGS_ORG = "bidi-popup"
-SETTINGS_APP = "bidi-popup"
 RESIZE_MARGIN = 8
-SHADOW_MARGIN = 16
 MIN_WIDTH = 360
 MIN_HEIGHT = 220
 
 LEFT, RIGHT, TOP, BOTTOM = 1, 2, 4, 8
 
 
-def pick_font(size: int) -> QFont:
+def pick_font(size: int, family: str = "") -> QFont:
     families = set(QFontDatabase.families())
+    if family and family in families:
+        return QFont(family, size)
     for name in FONT_CANDIDATES:
         if name in families:
             return QFont(name, size)
@@ -186,6 +179,12 @@ class MacTitleBar(QWidget):
         self._copy_btn.clicked.connect(popup.copy_text)
         tools.addWidget(self._copy_btn)
 
+        self._settings_btn = QPushButton("⚙")
+        self._settings_btn.setObjectName("ToolButton")
+        self._settings_btn.setToolTip("Settings")
+        self._settings_btn.clicked.connect(popup.open_settings)
+        tools.addWidget(self._settings_btn)
+
         self._theme_btn = QPushButton("◐")
         self._theme_btn.setObjectName("ToolButton")
         self._theme_btn.setToolTip("Toggle light / dark theme")
@@ -253,13 +252,12 @@ class Popup(QWidget):
     ) -> None:
         super().__init__(parent)
         self._settings = QSettings(SETTINGS_ORG, SETTINGS_APP)
+        self._prefs = AppSettings.load(self._settings)
         self._anchor = anchor
-        self._rtl = self._settings.value("rtl", True, type=bool)
-        theme = self._settings.value("theme", "dark", type=str)
-        if theme == "auto":
-            theme = "dark"
-        self._theme_mode = theme
-        self._font_size = self._settings.value("font_size", 12, type=int)
+        self._rtl = self._prefs.rtl_default
+        self._theme_mode = self._prefs.theme
+        self._font_size = self._prefs.font_size
+        self._font_family = self._prefs.font_family
         self._maximized = False
         self._normal_geometry = QRect()
         self._resizing = False
@@ -331,7 +329,62 @@ class Popup(QWidget):
         self._set_content(text)
 
         self._register_shortcuts()
-        self._restore_geometry(anchor)
+        self._apply_window_geometry(anchor)
+
+    def reload_preferences(self) -> None:
+        self._prefs = AppSettings.load(self._settings)
+        self._rtl = self._prefs.rtl_default
+        self._theme_mode = self._prefs.theme
+        self._font_size = self._prefs.font_size
+        self._font_family = self._prefs.font_family
+        self._apply_theme()
+        self._apply_font()
+        self._apply_direction()
+        self._apply_window_geometry(self._anchor)
+
+    def open_settings(self) -> None:
+        from settings_dialog import SettingsDialog
+
+        dialog = SettingsDialog(self)
+        if dialog.exec():
+            self.reload_preferences()
+
+    def _apply_window_geometry(self, anchor: QPoint | None) -> None:
+        prefs = AppSettings.load(self._settings)
+        self._anchor = anchor
+
+        if prefs.auto_size and not self._maximized:
+            QTimer.singleShot(0, lambda: self._fit_to_content(anchor))
+            return
+
+        if prefs.remember_geometry and not anchor:
+            saved = self._settings.value("geometry")
+            if saved:
+                self.restoreGeometry(saved)
+                return
+
+        self.resize(prefs.fixed_width, prefs.fixed_height)
+        if anchor is not None and prefs.open_near_cursor:
+            self._place_near(anchor)
+        elif anchor is None:
+            self._center_on_screen()
+
+    def _fit_to_content(self, anchor: QPoint | None) -> None:
+        if self._maximized:
+            return
+        prefs = AppSettings.load(self._settings)
+        find_h = self._find_bar.height() if self._find_bar.isVisible() else 0
+        ax = anchor.x() if anchor is not None else None
+        width, height = compute_popup_size(
+            self._box,
+            settings=prefs,
+            title_bar_height=self._title_bar.height(),
+            find_bar_height=find_h,
+            anchor_x=ax,
+        )
+        self.resize(width, height)
+        if anchor is not None and prefs.open_near_cursor:
+            self._place_near(anchor)
 
     def _register_shortcuts(self) -> None:
         for seq, slot in (
@@ -365,8 +418,9 @@ class Popup(QWidget):
 
     def _apply_font(self) -> None:
         self._font_size = max(9, min(28, self._font_size))
-        self._box.setFont(pick_font(self._font_size))
+        self._box.setFont(pick_font(self._font_size, self._font_family))
         self._settings.setValue("font_size", self._font_size)
+        self._settings.setValue("font_family", self._font_family)
 
     def adjust_font(self, delta: int) -> None:
         self._font_size += delta
@@ -419,8 +473,7 @@ class Popup(QWidget):
 
     def set_text(self, text: str, anchor: QPoint | None = None) -> None:
         self._set_content(text)
-        if anchor is not None:
-            self._place_near(anchor)
+        self._apply_window_geometry(anchor)
         cursor = self._box.textCursor()
         cursor.movePosition(QTextCursor.MoveOperation.Start)
         self._box.setTextCursor(cursor)
@@ -493,21 +546,6 @@ class Popup(QWidget):
                 self._title_bar._btn_max._icon_color,
             )
         self._sync_resize_rails()
-
-    def _restore_geometry(self, anchor: QPoint | None) -> None:
-        saved = self._settings.value("geometry")
-        if saved and not anchor:
-            self.restoreGeometry(saved)
-            return
-
-        w = self._settings.value("width", 580, type=int)
-        h = self._settings.value("height", 380, type=int)
-        self.resize(w, h)
-
-        if anchor is not None:
-            self._place_near(anchor)
-        else:
-            self._center_on_screen()
 
     def _place_near(self, anchor: QPoint) -> None:
         screen = QGuiApplication.screenAt(anchor) or QGuiApplication.primaryScreen()
@@ -653,10 +691,12 @@ class Popup(QWidget):
         super().keyPressEvent(event)
 
     def closeEvent(self, event) -> None:
-        if not self._maximized:
+        prefs = AppSettings.load(self._settings)
+        if not self._maximized and prefs.remember_geometry:
             self._settings.setValue("geometry", self.saveGeometry())
-            self._settings.setValue("width", self.width())
-            self._settings.setValue("height", self.height())
+            if not prefs.auto_size:
+                self._settings.setValue("width", self.width())
+                self._settings.setValue("height", self.height())
         super().closeEvent(event)
 
     def showEvent(self, event) -> None:

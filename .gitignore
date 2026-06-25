@@ -31,3 +31,7 @@ htmlcov/
 
 # Local dev / scratch
 test_pyqt.py
+test_*.py
+scripts/
+tests/
+/tmp/

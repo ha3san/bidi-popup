@@ -185,3 +185,143 @@ def build_stylesheet(p: Palette) -> str:
         width: 0;
     }}
     """
+
+
+def build_settings_stylesheet(p: Palette) -> str:
+    """Stylesheet for the settings dialog — high-contrast form controls."""
+    return f"""
+    QDialog#SettingsDialog {{
+        background-color: {p.window_bg};
+        color: {p.text_fg};
+    }}
+    QScrollArea#SettingsScroll {{
+        background: transparent;
+    }}
+    QLabel#SettingsTitle {{
+        color: {p.text_fg};
+        font-size: 16px;
+        font-weight: 600;
+        padding: 4px 0 8px 0;
+    }}
+    QLabel#HintLabel {{
+        color: {p.muted_fg};
+        font-size: 12px;
+        line-height: 1.4;
+        padding: 8px 12px;
+        background-color: {p.find_bar_bg};
+        border: 1px solid {p.window_border};
+        border-radius: 8px;
+    }}
+    QGroupBox {{
+        color: {p.text_fg};
+        font-size: 13px;
+        font-weight: 600;
+        border: 1px solid {p.window_border};
+        border-radius: 10px;
+        margin-top: 14px;
+        padding: 16px 14px 10px 14px;
+        background-color: {p.text_bg};
+    }}
+    QGroupBox::title {{
+        subcontrol-origin: margin;
+        subcontrol-position: top right;
+        padding: 0 8px;
+        color: {p.text_fg};
+    }}
+    QLabel {{
+        color: {p.text_fg};
+        font-size: 13px;
+    }}
+    QCheckBox {{
+        color: {p.text_fg};
+        font-size: 13px;
+        spacing: 8px;
+    }}
+    QCheckBox::indicator {{
+        width: 16px;
+        height: 16px;
+        border-radius: 4px;
+        border: 1px solid {p.window_border};
+        background: {p.text_bg};
+    }}
+    QCheckBox::indicator:checked {{
+        background: {p.selection_bg};
+        border-color: {p.selection_bg};
+    }}
+    QSpinBox, QComboBox {{
+        background-color: {p.text_bg};
+        color: {p.text_fg};
+        border: 1px solid {p.window_border};
+        border-radius: 6px;
+        padding: 6px 10px;
+        padding-right: 28px;
+        min-height: 28px;
+        font-size: 13px;
+    }}
+    QSpinBox::up-button, QSpinBox::down-button {{
+        subcontrol-origin: border;
+        width: 22px;
+        border-left: 1px solid {p.window_border};
+        background-color: {p.button_hover};
+    }}
+    QSpinBox::up-button {{
+        subcontrol-position: top right;
+        border-top-right-radius: 6px;
+    }}
+    QSpinBox::down-button {{
+        subcontrol-position: bottom right;
+        border-bottom-right-radius: 6px;
+    }}
+    QSpinBox::up-button:hover, QSpinBox::down-button:hover {{
+        background-color: {p.selection_bg};
+    }}
+    QSpinBox::up-arrow {{
+        width: 0;
+        height: 0;
+        border-left: 5px solid transparent;
+        border-right: 5px solid transparent;
+        border-bottom: 6px solid {p.text_fg};
+    }}
+    QSpinBox::down-arrow {{
+        width: 0;
+        height: 0;
+        border-left: 5px solid transparent;
+        border-right: 5px solid transparent;
+        border-top: 6px solid {p.text_fg};
+    }}
+    QSpinBox:focus, QComboBox:focus {{
+        border-color: {p.selection_bg};
+    }}
+    QSpinBox:disabled, QComboBox:disabled {{
+        color: {p.muted_fg};
+        background-color: {p.find_bar_bg};
+    }}
+    QComboBox::drop-down {{
+        border: none;
+        width: 24px;
+    }}
+    QComboBox QAbstractItemView {{
+        background-color: {p.text_bg};
+        color: {p.text_fg};
+        border: 1px solid {p.window_border};
+        selection-background-color: {p.selection_bg};
+    }}
+    QDialogButtonBox QPushButton {{
+        background-color: {p.button_hover};
+        color: {p.text_fg};
+        border: 1px solid {p.window_border};
+        border-radius: 8px;
+        padding: 8px 20px;
+        min-width: 88px;
+        font-size: 13px;
+    }}
+    QDialogButtonBox QPushButton:hover {{
+        background-color: {p.selection_bg};
+        color: #ffffff;
+    }}
+    QDialogButtonBox QPushButton:default {{
+        background-color: {p.selection_bg};
+        color: #ffffff;
+        border-color: {p.selection_bg};
+    }}
+    """

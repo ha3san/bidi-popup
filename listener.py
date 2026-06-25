@@ -8,7 +8,7 @@ import sys
 import threading
 from pathlib import Path
 
-from PyQt6.QtCore import QObject, QPoint, pyqtSignal
+from PyQt6.QtCore import QObject, QPoint, Qt, pyqtSignal
 from PyQt6.QtGui import QCursor, QIcon
 from PyQt6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 
@@ -72,6 +72,7 @@ class BidiPopupApp:
 
         menu = QMenu()
         menu.addAction("Show last popup", self._show_popup)
+        menu.addAction("Settings…", self._show_settings)
         menu.addSeparator()
         menu.addAction("Quit", self._app.quit)
         self._tray.setContextMenu(menu)
@@ -104,6 +105,15 @@ class BidiPopupApp:
             self._popup.show()
             self._popup.raise_()
             self._popup.activateWindow()
+
+    def _show_settings(self) -> None:
+        from settings_dialog import SettingsDialog
+
+        dialog = SettingsDialog()
+        dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+        if dialog.exec():
+            if self._popup is not None:
+                self._popup.reload_preferences()
 
     def _on_hotkey(self) -> None:
         try:
