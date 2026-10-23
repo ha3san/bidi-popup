@@ -160,10 +160,15 @@ class BidiPopupApp:
         from bidi_platform.hotkey_win import WinHotkeyFilter, register_hotkey
 
         # Hidden HWND that receives WM_HOTKEY (no low-level keyboard hook).
+        # PyQt6 has no createWinId(); winId() after show() creates the native handle.
         self._hotkey_host = QWidget()
         self._hotkey_host.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen, True)
-        self._hotkey_host.createWinId()
+        self._hotkey_host.show()
         hwnd = int(self._hotkey_host.winId())
+        if not hwnd:
+            notify("Bidi Popup", "نتوانست پنجرهٔ میانبر را بسازد")
+            print("bidi-popup: winId() returned 0", file=sys.stderr)
+            return
         if not register_hotkey(hwnd):
             notify("Bidi Popup", "نتوانست میانبر Ctrl+Shift+Space را ثبت کند")
             print("bidi-popup: RegisterHotKey failed", file=sys.stderr)
