@@ -104,7 +104,11 @@ class BidiPopupApp:
 
     def _setup_tray(self) -> None:
         self._tray = QSystemTrayIcon(app_icon())
-        if is_windows() or is_x11():
+        if is_windows():
+            from bidi_platform.hotkey_win import WINDOWS_HOTKEY_LABEL
+
+            hotkey = WINDOWS_HOTKEY_LABEL
+        elif is_x11():
             hotkey = "Ctrl+Alt+Space"
         else:
             hotkey = "shortcut (see README)"

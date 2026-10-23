@@ -140,7 +140,7 @@ class SettingsDialog(QDialog):
 
         hint = QLabel(
             "تغییرات از دفعه بعد که میانبر را بزنید اعمال می‌شود.\n"
-            "اگر پنجره باز است، یک‌بار ببندید و دوباره Ctrl+Alt+Space بزنید."
+            "اگر پنجره باز است، یک‌بار ببندید و دوباره میانبر را بزنید."
         )
         hint.setObjectName("HintLabel")
         hint.setWordWrap(True)

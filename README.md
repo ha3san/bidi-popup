@@ -37,11 +37,12 @@
 
 1. از صفحهٔ [Releases](https://github.com/ha3san/bidi-popup/releases) فایل **`BidiPopup-Setup.exe`** را دانلود کن
 2. نصب را با دابل‌کلیک انجام بده (می‌توانی «Start with Windows» را فعال کنی)
-3. برنامه کنار ساعت می‌ماند — متن را انتخاب کن و **`Ctrl+Alt+Space`** بزن
+3. برنامه کنار ساعت می‌ماند — متن را انتخاب کن و **`Ctrl+Shift+Space`** بزن  
+   (روی ویندوز عمداً با لینوکس فرق دارد؛ `Ctrl+Alt+Space` منوی سیستم ویندوز را باز می‌کند و فوکوس مرورگر را می‌دزدد)
 
 اگر ویندوز SmartScreen هشدار داد (چون فایل هنوز code-sign نشده): **More info** → **Run anyway**.
 
-ساخت نصب‌کننده از Actions هم ممکن است: workflow با نام **Windows release build** را دستی اجرا کن، یا یک تگ مثل `v1.2.0` بزن.
+ساخت نصب‌کننده از Actions هم ممکن است: workflow با نام **Windows release build** را دستی اجرا کن، یا یک تگ مثل `v1.2.2` بزن.
 
 ---
 
@@ -184,7 +185,8 @@ chmod +x start.sh install-autostart.sh install-shortcut.sh
 - hotkey خودکار روی Wayland فقط با shortcut دسکتاپ (GNOME: `install-shortcut.sh`)
 - KDE و compositorهای دیگر: shortcut را دستی به `./start.sh trigger` وصل کن
 - روی Wayland باید `./start.sh` قبل از shortcut در حال اجرا باشد
-- روی ویندوز، خواندن انتخاب متن با کپی موقت به کلیپ‌بورد انجام می‌شود (سپس بازگردانی)
+- روی ویندوز میانبر **`Ctrl+Shift+Space`** است (نه Ctrl+Alt+Space)
+- روی ویندوز، خواندن انتخاب متن با UI Automation / کپی موقت انجام می‌شود
 
 ## تست و پشتیبانی
 
@@ -221,7 +223,7 @@ Press **`Ctrl+Alt+Space`** to open a macOS-style RTL popup near your cursor.
 
 1. Download **`BidiPopup-Setup.exe`** from [Releases](https://github.com/ha3san/bidi-popup/releases)
 2. Install (optional: start with Windows)
-3. Select text → **`Ctrl+Alt+Space`**
+3. Select text → **`Ctrl+Shift+Space`** (not Ctrl+Alt+Space — that opens the Windows system menu)
 
 If SmartScreen warns you: **More info** → **Run anyway**.
 
@@ -229,9 +231,9 @@ If SmartScreen warns you: **More info** → **Run anyway**.
 
 | Session | Hotkey |
 |---------|--------|
-| X11 | Built-in (`pynput`) — tested by maintainer |
+| X11 | `Ctrl+Alt+Space` — tested by maintainer |
 | Wayland (GNOME) | Run `./install-shortcut.sh` once — experimental |
-| Windows | Built-in (`pynput`); selection via temporary Ctrl+C |
+| Windows | `Ctrl+Shift+Space` — UIA / WM_COPY / Ctrl+C |
 
 ## Testing & support
 

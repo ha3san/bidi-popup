@@ -1,12 +1,10 @@
 """Read highlighted text on Windows.
 
-Browsers often ignore synthetic Ctrl+C (SendInput). Strategy order:
-1) UI Automation TextPattern selection
-2) WM_COPY to the focused / foreground window
-3) SendInput Ctrl+C as last resort
+Ctrl+Alt+Space is avoided (Alt+Space = system menu). Before copy we restore
+the foreground window captured at hotkey time and force-release modifiers.
 
-Clipboard is restored afterwards. A short debug line is written under
-%LOCALAPPDATA%\\bidi-popup\\last-capture.log for troubleshooting.
+Strategy: UIA → WM_COPY → SendInput Ctrl+C.
+Debug: %LOCALAPPDATA%\\bidi-popup\\last-capture.log
 """
 
 from __future__ import annotations
@@ -19,11 +17,15 @@ CF_UNICODETEXT = 13
 GMEM_MOVEABLE = 0x0002
 WM_COPY = 0x0301
 SMTO_ABORTIFHUNG = 0x0002
+SW_RESTORE = 9
 
+VK_SHIFT = 0x10
 VK_CONTROL = 0x11
 VK_MENU = 0x12
 VK_SPACE = 0x20
 VK_C = 0x43
+VK_LSHIFT = 0xA0
+VK_RSHIFT = 0xA1
 VK_LCONTROL = 0xA2
 VK_RCONTROL = 0xA3
 VK_LMENU = 0xA4
@@ -33,14 +35,35 @@ KEYEVENTF_KEYUP = 0x0002
 INPUT_KEYBOARD = 1
 
 _MODIFIER_VKS = (
+    VK_SHIFT,
     VK_CONTROL,
     VK_MENU,
     VK_SPACE,
+    VK_LSHIFT,
+    VK_RSHIFT,
     VK_LCONTROL,
     VK_RCONTROL,
     VK_LMENU,
     VK_RMENU,
 )
+
+# HWND of the window that had focus when the hotkey fired.
+_target_hwnd: int = 0
+
+
+def note_foreground_window() -> None:
+    """Call from the hotkey thread as soon as the combo fires."""
+    global _target_hwnd
+    try:
+        _target_hwnd = int(ctypes_user32().GetForegroundWindow() or 0)
+    except Exception:
+        _target_hwnd = 0
+
+
+def ctypes_user32():
+    import ctypes
+
+    return ctypes.windll.user32
 
 
 def _win():
@@ -57,6 +80,19 @@ def _log(msg: str) -> None:
         (base / "last-capture.log").write_text(msg, encoding="utf-8")
     except OSError:
         pass
+
+
+def _window_debug(hwnd: int) -> str:
+    if not hwnd:
+        return "hwnd=0"
+    import ctypes
+
+    user32 = ctypes.windll.user32
+    buf = ctypes.create_unicode_buffer(256)
+    user32.GetClassNameW(hwnd, buf, 256)
+    title = ctypes.create_unicode_buffer(256)
+    user32.GetWindowTextW(hwnd, title, 256)
+    return f"hwnd={hwnd} class={buf.value!r} title={title.value[:80]!r}"
 
 
 def _open_clipboard(user32, retries: int = 30) -> bool:
@@ -99,7 +135,6 @@ def _write_clipboard_text(ctypes, user32, kernel32, text: str) -> None:
 
 
 def _get_clipboard() -> str:
-    # Prefer Qt clipboard when running inside the GUI thread.
     try:
         from PyQt6.QtWidgets import QApplication
 
@@ -145,33 +180,115 @@ def _key_down(user32, vk: int) -> bool:
     return bool(user32.GetAsyncKeyState(vk) & 0x8000)
 
 
+def _send_key_events(pairs: list[tuple[int, int]]) -> None:
+    """pairs: list of (vk, flags)."""
+    import ctypes
+    from ctypes import wintypes
+
+    user32 = ctypes.windll.user32
+
+    class KEYBDINPUT(ctypes.Structure):
+        _fields_ = [
+            ("wVk", wintypes.WORD),
+            ("wScan", wintypes.WORD),
+            ("dwFlags", wintypes.DWORD),
+            ("time", wintypes.DWORD),
+            ("dwExtraInfo", ctypes.POINTER(ctypes.c_ulong)),
+        ]
+
+    class INPUT(ctypes.Structure):
+        class _I(ctypes.Union):
+            _fields_ = [("ki", KEYBDINPUT)]
+
+        _anonymous_ = ("i",)
+        _fields_ = [("type", wintypes.DWORD), ("i", _I)]
+
+    n = len(pairs)
+    events = (INPUT * n)()
+    for i, (vk, flags) in enumerate(pairs):
+        events[i].type = INPUT_KEYBOARD
+        events[i].ki = KEYBDINPUT(vk, 0, flags, 0, None)
+    user32.SendInput(n, ctypes.byref(events), ctypes.sizeof(INPUT))
+
+
+def _force_release_modifiers() -> None:
+    _send_key_events([(vk, KEYEVENTF_KEYUP) for vk in _MODIFIER_VKS])
+    time.sleep(0.05)
+
+
 def _wait_hotkey_keys_released(timeout: float = 1.5) -> bool:
     _ctypes, _wintypes, user32, _kernel32 = _win()
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if not any(_key_down(user32, vk) for vk in _MODIFIER_VKS):
-            time.sleep(0.06)
+            time.sleep(0.05)
             return True
         time.sleep(0.02)
-    return False
+    # Still force KEYUPs so we are not stuck with a ghost Alt/Ctrl/Shift.
+    _force_release_modifiers()
+    return True
 
 
-def _uia_selected_text() -> str:
-    """Read selection via UI Automation (works in many browsers without Ctrl+C)."""
+def _restore_target_focus() -> int:
+    """Bring the original app back to the foreground; return hwnd used."""
+    import ctypes
+
+    user32 = ctypes.windll.user32
+    kernel32 = ctypes.windll.kernel32
+
+    hwnd = _target_hwnd or int(user32.GetForegroundWindow() or 0)
+    if not hwnd:
+        return 0
+
+    fg = int(user32.GetForegroundWindow() or 0)
+    if fg == hwnd:
+        return hwnd
+
+    tid_current = kernel32.GetCurrentThreadId()
+    tid_fg = user32.GetWindowThreadProcessId(fg, None) if fg else 0
+    tid_target = user32.GetWindowThreadProcessId(hwnd, None)
+
+    if tid_fg:
+        user32.AttachThreadInput(tid_current, tid_fg, True)
+    if tid_target and tid_target != tid_fg:
+        user32.AttachThreadInput(tid_current, tid_target, True)
+
+    user32.ShowWindow(hwnd, SW_RESTORE)
+    user32.BringWindowToTop(hwnd)
+    user32.SetForegroundWindow(hwnd)
+    user32.SetFocus(hwnd)
+
+    if tid_fg:
+        user32.AttachThreadInput(tid_current, tid_fg, False)
+    if tid_target and tid_target != tid_fg:
+        user32.AttachThreadInput(tid_current, tid_target, False)
+
+    time.sleep(0.08)
+    return hwnd
+
+
+def _uia_selected_text(hwnd: int) -> str:
     try:
         import uiautomation as auto
     except ImportError:
         return ""
 
+    control = None
     try:
-        control = auto.GetFocusedControl()
+        if hwnd:
+            control = auto.ControlFromHandle(hwnd)
+        if control is None:
+            control = auto.GetFocusedControl()
     except Exception:
-        return ""
+        try:
+            control = auto.GetFocusedControl()
+        except Exception:
+            return ""
     if control is None:
         return ""
 
     current = control
-    for _ in range(10):
+    for _ in range(12):
         if current is None:
             break
         try:
@@ -194,7 +311,7 @@ def _uia_selected_text() -> str:
     return ""
 
 
-def _focused_hwnds():
+def _focused_hwnds(preferred: int) -> list[int]:
     import ctypes
     from ctypes import wintypes
 
@@ -213,16 +330,18 @@ def _focused_hwnds():
             ("rcCaret", wintypes.RECT),
         ]
 
-    fg = user32.GetForegroundWindow()
     hwnds: list[int] = []
+    if preferred:
+        hwnds.append(preferred)
+    fg = int(user32.GetForegroundWindow() or 0)
     if fg:
-        hwnds.append(int(fg))
+        hwnds.append(fg)
         tid = user32.GetWindowThreadProcessId(fg, None)
         info = GUITHREADINFO()
         info.cbSize = ctypes.sizeof(GUITHREADINFO)
         if user32.GetGUIThreadInfo(tid, ctypes.byref(info)) and info.hwndFocus:
             hwnds.insert(0, int(info.hwndFocus))
-    # Unique, focus first
+
     seen: set[int] = set()
     ordered: list[int] = []
     for h in hwnds:
@@ -232,13 +351,13 @@ def _focused_hwnds():
     return ordered
 
 
-def _wm_copy() -> None:
+def _wm_copy(preferred: int) -> None:
     import ctypes
     from ctypes import wintypes
 
     user32 = ctypes.windll.user32
     result = wintypes.DWORD()
-    for hwnd in _focused_hwnds():
+    for hwnd in _focused_hwnds(preferred):
         user32.SendMessageTimeoutW(
             hwnd,
             WM_COPY,
@@ -251,54 +370,31 @@ def _wm_copy() -> None:
 
 
 def _send_ctrl_c() -> None:
-    import ctypes
-    from ctypes import wintypes
-
-    user32 = ctypes.windll.user32
-
-    class KEYBDINPUT(ctypes.Structure):
-        _fields_ = [
-            ("wVk", wintypes.WORD),
-            ("wScan", wintypes.WORD),
-            ("dwFlags", wintypes.DWORD),
-            ("time", wintypes.DWORD),
-            ("dwExtraInfo", ctypes.POINTER(ctypes.c_ulong)),
+    _send_key_events(
+        [
+            (VK_CONTROL, 0),
+            (VK_C, 0),
+            (VK_C, KEYEVENTF_KEYUP),
+            (VK_CONTROL, KEYEVENTF_KEYUP),
         ]
-
-    class INPUT(ctypes.Structure):
-        class _I(ctypes.Union):
-            _fields_ = [("ki", KEYBDINPUT)]
-
-        _anonymous_ = ("i",)
-        _fields_ = [("type", wintypes.DWORD), ("i", _I)]
-
-    def _event(vk: int, flags: int = 0) -> INPUT:
-        inp = INPUT()
-        inp.type = INPUT_KEYBOARD
-        inp.ki = KEYBDINPUT(vk, 0, flags, 0, None)
-        return inp
-
-    events = (INPUT * 4)(
-        _event(VK_CONTROL, 0),
-        _event(VK_C, 0),
-        _event(VK_C, KEYEVENTF_KEYUP),
-        _event(VK_CONTROL, KEYEVENTF_KEYUP),
     )
-    user32.SendInput(4, ctypes.byref(events), ctypes.sizeof(INPUT))
+
+
+def _process_events() -> None:
+    try:
+        from PyQt6.QtWidgets import QApplication
+
+        app = QApplication.instance()
+        if app is not None:
+            app.processEvents()
+    except Exception:
+        pass
 
 
 def _wait_clipboard_changed(sentinel: str, timeout: float = 1.8) -> str:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        # Let Qt process clipboard change notifications.
-        try:
-            from PyQt6.QtWidgets import QApplication
-
-            app = QApplication.instance()
-            if app is not None:
-                app.processEvents()
-        except Exception:
-            pass
+        _process_events()
         text = _get_clipboard()
         if text and text != sentinel:
             return text.strip()
@@ -310,43 +406,43 @@ def _wait_clipboard_changed(sentinel: str, timeout: float = 1.8) -> str:
 
 
 def get_selected_text_windows() -> str:
-    """Return highlighted text using UIA, then WM_COPY, then Ctrl+C."""
     previous = _get_clipboard()
     methods_tried: list[str] = []
 
-    # 1) UI Automation — no clipboard, best for browsers when available.
-    uia_text = _uia_selected_text()
+    _wait_hotkey_keys_released()
+    _force_release_modifiers()
+    hwnd = _restore_target_focus()
+    win_info = _window_debug(hwnd)
+
+    uia_text = _uia_selected_text(hwnd)
     if uia_text:
-        _log(f"ok method=uia len={len(uia_text)}")
+        _log(f"ok method=uia len={len(uia_text)} {win_info}")
         return uia_text
     methods_tried.append("uia:empty")
 
     sentinel = f"__bidi_popup_{time.time_ns()}__"
     try:
-        if not _wait_hotkey_keys_released():
-            _log("fail reason=modifiers_timeout methods=" + ",".join(methods_tried))
-            return ""
-
         _set_clipboard(sentinel)
+        _restore_target_focus()
 
-        # 2) WM_COPY — native copy request, often works where SendInput fails.
-        _wm_copy()
+        _wm_copy(hwnd)
         text = _wait_clipboard_changed(sentinel, timeout=1.2)
         if text:
-            _log(f"ok method=wm_copy len={len(text)}")
+            _log(f"ok method=wm_copy len={len(text)} {win_info}")
             return text
         methods_tried.append("wm_copy:empty")
 
-        # 3) Synthetic Ctrl+C last.
         _set_clipboard(sentinel)
+        _restore_target_focus()
+        _force_release_modifiers()
         _send_ctrl_c()
         text = _wait_clipboard_changed(sentinel, timeout=1.5)
         if text:
-            _log(f"ok method=sendinput len={len(text)}")
+            _log(f"ok method=sendinput len={len(text)} {win_info}")
             return text
         methods_tried.append("sendinput:empty")
 
-        _log("fail reason=no_text methods=" + ",".join(methods_tried))
+        _log(f"fail reason=no_text methods={','.join(methods_tried)} {win_info}")
         return ""
     finally:
         try:
