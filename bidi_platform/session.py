@@ -1,12 +1,21 @@
-"""Detect Linux display session type (X11 vs Wayland)."""
+"""Detect display / OS session type (Linux X11/Wayland, or Windows)."""
 
 from __future__ import annotations
 
 import os
+import sys
+
+
+def is_windows() -> bool:
+    return sys.platform == "win32"
 
 
 def session_type() -> str:
-    """Return 'x11', 'wayland', or 'unknown'."""
+    """Return 'windows', 'x11', 'wayland', or 'unknown'."""
+    # Windows first so Linux helpers below stay behaviorally identical on Linux.
+    if is_windows():
+        return "windows"
+
     value = os.environ.get("XDG_SESSION_TYPE", "").strip().lower()
     if value in ("x11", "wayland"):
         return value
@@ -18,6 +27,7 @@ def session_type() -> str:
 
 
 def is_x11() -> bool:
+    # Unchanged rule for Linux; "windows" is neither x11 nor unknown.
     return session_type() in ("x11", "unknown")
 
 

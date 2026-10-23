@@ -14,6 +14,7 @@ FONT_CANDIDATES = (
     "Noto Sans Arabic",
     "Iranian Sans",
     "Tahoma",
+    "Segoe UI",
     "DejaVu Sans",
 )
 
