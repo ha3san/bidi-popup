@@ -26,6 +26,7 @@ a = Analysis(
         "app_settings",
         "pynput.keyboard._win32",
         "pynput.mouse._win32",
+        "uiautomation",
     ],
     hookspath=[],
     hooksconfig={},

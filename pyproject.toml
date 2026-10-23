@@ -1,6 +1,6 @@
 [project]
 name = "bidi-popup"
-version = "1.2.1"
+version = "1.2.2"
 description = "RTL/Bidi text popup for Linux and Windows — read mixed Persian/English selection with a hotkey"
 readme = "README.md"
 license = "MIT"
@@ -8,4 +8,5 @@ requires-python = ">=3.10"
 dependencies = [
     "PyQt6>=6.6",
     "pynput>=1.7",
+    "uiautomation>=2.0.18; sys_platform == 'win32'",
 ]

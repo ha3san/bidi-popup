@@ -1,19 +1,27 @@
-"""Read highlighted text on Windows via Ctrl+C + clipboard (restore after).
+"""Read highlighted text on Windows.
 
-Imported only when running on Windows — keep top-level free of windll so
-accidental imports on Linux never break the Linux build.
+Browsers often ignore synthetic Ctrl+C (SendInput). Strategy order:
+1) UI Automation TextPattern selection
+2) WM_COPY to the focused / foreground window
+3) SendInput Ctrl+C as last resort
+
+Clipboard is restored afterwards. A short debug line is written under
+%LOCALAPPDATA%\\bidi-popup\\last-capture.log for troubleshooting.
 """
 
 from __future__ import annotations
 
+import os
 import time
+from pathlib import Path
 
 CF_UNICODETEXT = 13
 GMEM_MOVEABLE = 0x0002
+WM_COPY = 0x0301
+SMTO_ABORTIFHUNG = 0x0002
 
-# Virtual-key codes
 VK_CONTROL = 0x11
-VK_MENU = 0x12  # Alt
+VK_MENU = 0x12
 VK_SPACE = 0x20
 VK_C = 0x43
 VK_LCONTROL = 0xA2
@@ -24,7 +32,6 @@ VK_RMENU = 0xA5
 KEYEVENTF_KEYUP = 0x0002
 INPUT_KEYBOARD = 1
 
-# Hotkey modifiers that must be up before we inject Ctrl+C
 _MODIFIER_VKS = (
     VK_CONTROL,
     VK_MENU,
@@ -40,12 +47,19 @@ def _win():
     import ctypes
     from ctypes import wintypes
 
-    user32 = ctypes.windll.user32
-    kernel32 = ctypes.windll.kernel32
-    return ctypes, wintypes, user32, kernel32
+    return ctypes, wintypes, ctypes.windll.user32, ctypes.windll.kernel32
 
 
-def _open_clipboard(user32, retries: int = 20) -> bool:
+def _log(msg: str) -> None:
+    try:
+        base = Path(os.environ.get("LOCALAPPDATA") or ".") / "bidi-popup"
+        base.mkdir(parents=True, exist_ok=True)
+        (base / "last-capture.log").write_text(msg, encoding="utf-8")
+    except OSError:
+        pass
+
+
+def _open_clipboard(user32, retries: int = 30) -> bool:
     for _ in range(retries):
         if user32.OpenClipboard(None):
             return True
@@ -85,6 +99,18 @@ def _write_clipboard_text(ctypes, user32, kernel32, text: str) -> None:
 
 
 def _get_clipboard() -> str:
+    # Prefer Qt clipboard when running inside the GUI thread.
+    try:
+        from PyQt6.QtWidgets import QApplication
+
+        app = QApplication.instance()
+        if app is not None:
+            text = app.clipboard().text()
+            if text is not None:
+                return text
+    except Exception:
+        pass
+
     ctypes, _wintypes, user32, kernel32 = _win()
     if not _open_clipboard(user32):
         return ""
@@ -95,6 +121,17 @@ def _get_clipboard() -> str:
 
 
 def _set_clipboard(text: str) -> None:
+    try:
+        from PyQt6.QtGui import QClipboard
+        from PyQt6.QtWidgets import QApplication
+
+        app = QApplication.instance()
+        if app is not None:
+            app.clipboard().setText(text, QClipboard.Mode.Clipboard)
+            return
+    except Exception:
+        pass
+
     ctypes, _wintypes, user32, kernel32 = _win()
     if not _open_clipboard(user32):
         return
@@ -104,35 +141,116 @@ def _set_clipboard(text: str) -> None:
         user32.CloseClipboard()
 
 
-def _clear_clipboard() -> None:
-    _ctypes, _wintypes, user32, _kernel32 = _win()
-    if not _open_clipboard(user32):
-        return
-    try:
-        user32.EmptyClipboard()
-    finally:
-        user32.CloseClipboard()
-
-
 def _key_down(user32, vk: int) -> bool:
     return bool(user32.GetAsyncKeyState(vk) & 0x8000)
 
 
 def _wait_hotkey_keys_released(timeout: float = 1.5) -> bool:
-    """Wait until Ctrl/Alt/Space from the hotkey are no longer held."""
     _ctypes, _wintypes, user32, _kernel32 = _win()
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if not any(_key_down(user32, vk) for vk in _MODIFIER_VKS):
-            # Brief settle so the target app sees a clean key state.
-            time.sleep(0.05)
+            time.sleep(0.06)
             return True
         time.sleep(0.02)
     return False
 
 
+def _uia_selected_text() -> str:
+    """Read selection via UI Automation (works in many browsers without Ctrl+C)."""
+    try:
+        import uiautomation as auto
+    except ImportError:
+        return ""
+
+    try:
+        control = auto.GetFocusedControl()
+    except Exception:
+        return ""
+    if control is None:
+        return ""
+
+    current = control
+    for _ in range(10):
+        if current is None:
+            break
+        try:
+            pattern = current.GetTextPattern()
+        except Exception:
+            pattern = None
+        if pattern is not None:
+            try:
+                ranges = pattern.GetSelection()
+                if ranges:
+                    text = "".join(r.GetText(-1) for r in ranges).strip()
+                    if text:
+                        return text
+            except Exception:
+                pass
+        try:
+            current = current.GetParentControl()
+        except Exception:
+            break
+    return ""
+
+
+def _focused_hwnds():
+    import ctypes
+    from ctypes import wintypes
+
+    user32 = ctypes.windll.user32
+
+    class GUITHREADINFO(ctypes.Structure):
+        _fields_ = [
+            ("cbSize", wintypes.DWORD),
+            ("flags", wintypes.DWORD),
+            ("hwndActive", wintypes.HWND),
+            ("hwndFocus", wintypes.HWND),
+            ("hwndCapture", wintypes.HWND),
+            ("hwndMenuOwner", wintypes.HWND),
+            ("hwndMoveSize", wintypes.HWND),
+            ("hwndCaret", wintypes.HWND),
+            ("rcCaret", wintypes.RECT),
+        ]
+
+    fg = user32.GetForegroundWindow()
+    hwnds: list[int] = []
+    if fg:
+        hwnds.append(int(fg))
+        tid = user32.GetWindowThreadProcessId(fg, None)
+        info = GUITHREADINFO()
+        info.cbSize = ctypes.sizeof(GUITHREADINFO)
+        if user32.GetGUIThreadInfo(tid, ctypes.byref(info)) and info.hwndFocus:
+            hwnds.insert(0, int(info.hwndFocus))
+    # Unique, focus first
+    seen: set[int] = set()
+    ordered: list[int] = []
+    for h in hwnds:
+        if h and h not in seen:
+            seen.add(h)
+            ordered.append(h)
+    return ordered
+
+
+def _wm_copy() -> None:
+    import ctypes
+    from ctypes import wintypes
+
+    user32 = ctypes.windll.user32
+    result = wintypes.DWORD()
+    for hwnd in _focused_hwnds():
+        user32.SendMessageTimeoutW(
+            hwnd,
+            WM_COPY,
+            0,
+            0,
+            SMTO_ABORTIFHUNG,
+            400,
+            ctypes.byref(result),
+        )
+
+
 def _send_ctrl_c() -> None:
-    """Inject Ctrl+C with SendInput (more reliable than pynput while Alt was held)."""
     import ctypes
     from ctypes import wintypes
 
@@ -169,14 +287,22 @@ def _send_ctrl_c() -> None:
     user32.SendInput(4, ctypes.byref(events), ctypes.sizeof(INPUT))
 
 
-def _wait_clipboard_changed(sentinel: str, timeout: float = 0.8) -> str:
+def _wait_clipboard_changed(sentinel: str, timeout: float = 1.8) -> str:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
+        # Let Qt process clipboard change notifications.
+        try:
+            from PyQt6.QtWidgets import QApplication
+
+            app = QApplication.instance()
+            if app is not None:
+                app.processEvents()
+        except Exception:
+            pass
         text = _get_clipboard()
         if text and text != sentinel:
             return text.strip()
-        time.sleep(0.03)
-    # Final read — empty or still sentinel means copy failed / no selection.
+        time.sleep(0.04)
     text = _get_clipboard().strip()
     if not text or text == sentinel:
         return ""
@@ -184,16 +310,44 @@ def _wait_clipboard_changed(sentinel: str, timeout: float = 0.8) -> str:
 
 
 def get_selected_text_windows() -> str:
-    """Copy current selection with Ctrl+C, then restore the previous clipboard."""
+    """Return highlighted text using UIA, then WM_COPY, then Ctrl+C."""
     previous = _get_clipboard()
+    methods_tried: list[str] = []
+
+    # 1) UI Automation — no clipboard, best for browsers when available.
+    uia_text = _uia_selected_text()
+    if uia_text:
+        _log(f"ok method=uia len={len(uia_text)}")
+        return uia_text
+    methods_tried.append("uia:empty")
+
     sentinel = f"__bidi_popup_{time.time_ns()}__"
     try:
-        # Unique marker so we can tell a real copy from a failed Ctrl+C.
-        _set_clipboard(sentinel)
         if not _wait_hotkey_keys_released():
+            _log("fail reason=modifiers_timeout methods=" + ",".join(methods_tried))
             return ""
+
+        _set_clipboard(sentinel)
+
+        # 2) WM_COPY — native copy request, often works where SendInput fails.
+        _wm_copy()
+        text = _wait_clipboard_changed(sentinel, timeout=1.2)
+        if text:
+            _log(f"ok method=wm_copy len={len(text)}")
+            return text
+        methods_tried.append("wm_copy:empty")
+
+        # 3) Synthetic Ctrl+C last.
+        _set_clipboard(sentinel)
         _send_ctrl_c()
-        return _wait_clipboard_changed(sentinel)
+        text = _wait_clipboard_changed(sentinel, timeout=1.5)
+        if text:
+            _log(f"ok method=sendinput len={len(text)}")
+            return text
+        methods_tried.append("sendinput:empty")
+
+        _log("fail reason=no_text methods=" + ",".join(methods_tried))
+        return ""
     finally:
         try:
             _set_clipboard(previous)
