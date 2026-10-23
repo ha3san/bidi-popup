@@ -1,4 +1,8 @@
-"""Global hotkey listener for Windows (pynput). Same combo as Linux X11."""
+"""Global hotkey listener for Windows (pynput). Same combo as Linux X11.
+
+Triggers on combo *release* so Ctrl/Alt are less likely to still be held
+when we inject Ctrl+C to read the selection.
+"""
 
 from __future__ import annotations
 
@@ -30,24 +34,26 @@ def run_windows_hotkey(bridge: "HotkeyBridge") -> None:
         return ctrl_held() and alt_held() and keyboard.Key.space in pressed
 
     def on_press(key: keyboard.Key | keyboard.KeyCode | None) -> None:
-        nonlocal combo_was_active, last_trigger
+        nonlocal combo_was_active
         if key is None:
             return
         pressed.add(key)
+        combo_was_active = combo_active()
+
+    def on_release(key: keyboard.Key | keyboard.KeyCode | None) -> None:
+        nonlocal combo_was_active, last_trigger
+        if key is None:
+            return
+        was_active = combo_was_active
+        pressed.discard(key)
         active = combo_active()
-        if active and not combo_was_active:
+        # Falling edge of the full combo → fire once keys start coming up.
+        if was_active and not active:
             now = time.monotonic()
             if now - last_trigger >= DEBOUNCE_SEC:
                 last_trigger = now
                 bridge.activated.emit()
         combo_was_active = active
-
-    def on_release(key: keyboard.Key | keyboard.KeyCode | None) -> None:
-        nonlocal combo_was_active
-        if key is None:
-            return
-        pressed.discard(key)
-        combo_was_active = combo_active()
 
     with keyboard.Listener(on_press=on_press, on_release=on_release) as listener:
         listener.join()
