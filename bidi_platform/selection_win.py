@@ -1,9 +1,8 @@
 """Read highlighted text on Windows.
 
-Ctrl+Alt+Space is avoided (Alt+Space = system menu). Before copy we restore
-the foreground window captured at hotkey time and force-release modifiers.
+Strategy: UIA (incl. Chrome Document) → WM_COPY → SendInput Ctrl+C.
+No pynput hook should be active when SendInput runs (see hotkey_win.py).
 
-Strategy: UIA → WM_COPY → SendInput Ctrl+C.
 Debug: %LOCALAPPDATA%\\bidi-popup\\last-capture.log
 """
 
@@ -47,12 +46,10 @@ _MODIFIER_VKS = (
     VK_RMENU,
 )
 
-# HWND of the window that had focus when the hotkey fired.
 _target_hwnd: int = 0
 
 
 def note_foreground_window() -> None:
-    """Call from the hotkey thread as soon as the combo fires."""
     global _target_hwnd
     try:
         _target_hwnd = int(ctypes_user32().GetForegroundWindow() or 0)
@@ -181,7 +178,6 @@ def _key_down(user32, vk: int) -> bool:
 
 
 def _send_key_events(pairs: list[tuple[int, int]]) -> None:
-    """pairs: list of (vk, flags)."""
     import ctypes
     from ctypes import wintypes
 
@@ -208,7 +204,11 @@ def _send_key_events(pairs: list[tuple[int, int]]) -> None:
     for i, (vk, flags) in enumerate(pairs):
         events[i].type = INPUT_KEYBOARD
         events[i].ki = KEYBDINPUT(vk, 0, flags, 0, None)
-    user32.SendInput(n, ctypes.byref(events), ctypes.sizeof(INPUT))
+    sent = user32.SendInput(n, ctypes.byref(events), ctypes.sizeof(INPUT))
+    if sent != n:
+        # Fallback for environments that reject SendInput batches.
+        for vk, flags in pairs:
+            user32.keybd_event(vk, 0, flags, 0)
 
 
 def _force_release_modifiers() -> None:
@@ -216,21 +216,18 @@ def _force_release_modifiers() -> None:
     time.sleep(0.05)
 
 
-def _wait_hotkey_keys_released(timeout: float = 1.5) -> bool:
+def _wait_hotkey_keys_released(timeout: float = 1.5) -> None:
     _ctypes, _wintypes, user32, _kernel32 = _win()
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if not any(_key_down(user32, vk) for vk in _MODIFIER_VKS):
             time.sleep(0.05)
-            return True
+            break
         time.sleep(0.02)
-    # Still force KEYUPs so we are not stuck with a ghost Alt/Ctrl/Shift.
     _force_release_modifiers()
-    return True
 
 
 def _restore_target_focus() -> int:
-    """Bring the original app back to the foreground; return hwnd used."""
     import ctypes
 
     user32 = ctypes.windll.user32
@@ -256,15 +253,34 @@ def _restore_target_focus() -> int:
     user32.ShowWindow(hwnd, SW_RESTORE)
     user32.BringWindowToTop(hwnd)
     user32.SetForegroundWindow(hwnd)
-    user32.SetFocus(hwnd)
 
     if tid_fg:
         user32.AttachThreadInput(tid_current, tid_fg, False)
     if tid_target and tid_target != tid_fg:
         user32.AttachThreadInput(tid_current, tid_target, False)
 
-    time.sleep(0.08)
+    time.sleep(0.1)
     return hwnd
+
+
+def _uia_text_from_control(control) -> str:
+    if control is None:
+        return ""
+    try:
+        pattern = control.GetTextPattern()
+    except Exception:
+        pattern = None
+    if pattern is None:
+        return ""
+    try:
+        ranges = pattern.GetSelection()
+        if ranges:
+            text = "".join(r.GetText(-1) for r in ranges).strip()
+            if text:
+                return text
+    except Exception:
+        pass
+    return ""
 
 
 def _uia_selected_text(hwnd: int) -> str:
@@ -273,41 +289,61 @@ def _uia_selected_text(hwnd: int) -> str:
     except ImportError:
         return ""
 
-    control = None
+    try:
+        auto.InitializeUIAutomationInCurrentThread()
+    except Exception:
+        pass
+
+    candidates = []
+    try:
+        focused = auto.GetFocusedControl()
+        if focused is not None:
+            candidates.append(focused)
+    except Exception:
+        pass
+
+    root = None
     try:
         if hwnd:
-            control = auto.ControlFromHandle(hwnd)
-        if control is None:
-            control = auto.GetFocusedControl()
+            root = auto.ControlFromHandle(hwnd)
+            if root is not None:
+                candidates.append(root)
+                # Chromium document / pane often holds the selection.
+                try:
+                    doc = root.Control(ControlType=auto.ControlType.Document, searchDepth=12)
+                    if doc is not None:
+                        candidates.append(doc)
+                except Exception:
+                    pass
+                try:
+                    pane = root.Control(ClassName="Chrome_RenderWidgetHostHWND", searchDepth=8)
+                    if pane is not None:
+                        candidates.append(pane)
+                except Exception:
+                    pass
     except Exception:
-        try:
-            control = auto.GetFocusedControl()
-        except Exception:
-            return ""
-    if control is None:
-        return ""
+        pass
 
-    current = control
-    for _ in range(12):
-        if current is None:
-            break
-        try:
-            pattern = current.GetTextPattern()
-        except Exception:
-            pattern = None
-        if pattern is not None:
+    seen: set[int] = set()
+    for control in candidates:
+        current = control
+        for _ in range(14):
+            if current is None:
+                break
             try:
-                ranges = pattern.GetSelection()
-                if ranges:
-                    text = "".join(r.GetText(-1) for r in ranges).strip()
-                    if text:
-                        return text
+                rid = id(current)
             except Exception:
-                pass
-        try:
-            current = current.GetParentControl()
-        except Exception:
-            break
+                rid = 0
+            if rid in seen:
+                break
+            seen.add(rid)
+            text = _uia_text_from_control(current)
+            if text:
+                return text
+            try:
+                current = current.GetParentControl()
+            except Exception:
+                break
     return ""
 
 
@@ -391,7 +427,7 @@ def _process_events() -> None:
         pass
 
 
-def _wait_clipboard_changed(sentinel: str, timeout: float = 1.8) -> str:
+def _wait_clipboard_changed(sentinel: str, timeout: float = 2.0) -> str:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         _process_events()
@@ -410,7 +446,6 @@ def get_selected_text_windows() -> str:
     methods_tried: list[str] = []
 
     _wait_hotkey_keys_released()
-    _force_release_modifiers()
     hwnd = _restore_target_focus()
     win_info = _window_debug(hwnd)
 
@@ -435,8 +470,9 @@ def get_selected_text_windows() -> str:
         _set_clipboard(sentinel)
         _restore_target_focus()
         _force_release_modifiers()
+        time.sleep(0.05)
         _send_ctrl_c()
-        text = _wait_clipboard_changed(sentinel, timeout=1.5)
+        text = _wait_clipboard_changed(sentinel, timeout=2.0)
         if text:
             _log(f"ok method=sendinput len={len(text)} {win_info}")
             return text

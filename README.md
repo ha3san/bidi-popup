@@ -233,7 +233,7 @@ If SmartScreen warns you: **More info** → **Run anyway**.
 |---------|--------|
 | X11 | `Ctrl+Alt+Space` — tested by maintainer |
 | Wayland (GNOME) | Run `./install-shortcut.sh` once — experimental |
-| Windows | `Ctrl+Shift+Space` — UIA / WM_COPY / Ctrl+C |
+| Windows | `Ctrl+Shift+Space` via RegisterHotKey (no pynput hook) |
 
 ## Testing & support
 

@@ -10,7 +10,7 @@ from pathlib import Path
 
 from PyQt6.QtCore import QObject, QPoint, Qt, pyqtSignal
 from PyQt6.QtGui import QCursor, QIcon
-from PyQt6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
+from PyQt6.QtWidgets import QApplication, QMenu, QSystemTrayIcon, QWidget
 
 from bidi_platform.selection import get_selected_text, missing_dependencies
 from bidi_platform.session import is_wayland, is_windows, is_x11, session_type
@@ -94,13 +94,21 @@ class BidiPopupApp:
         self._bridge = HotkeyBridge()
         self._bridge.activated.connect(self._on_hotkey)
         self._autostart_action = None
+        self._win_clipboard_fallback = False
+        self._hotkey_host: QWidget | None = None
+        self._hotkey_filter = None
 
         self._setup_tray()
         _tray_ref = self._tray
         self._maybe_wayland_hint()
 
-        thread = threading.Thread(target=self._run_listeners, name="hotkey-listener", daemon=True)
-        thread.start()
+        if is_windows():
+            self._setup_windows_hotkey()
+            self._app.aboutToQuit.connect(self._teardown_windows_hotkey)
+        else:
+            # Linux only — keep background X11/Wayland listeners unchanged.
+            thread = threading.Thread(target=self._run_listeners, name="hotkey-listener", daemon=True)
+            thread.start()
 
     def _setup_tray(self) -> None:
         self._tray = QSystemTrayIcon(app_icon())
@@ -148,18 +156,33 @@ class BidiPopupApp:
             "Wayland: یک‌بار ./install-shortcut.sh را اجرا کن تا Ctrl+Alt+Space تنظیم شود",
         )
 
-    def _run_listeners(self) -> None:
-        if is_windows():
-            try:
-                from bidi_platform.hotkey_win import run_windows_hotkey
+    def _setup_windows_hotkey(self) -> None:
+        from bidi_platform.hotkey_win import WinHotkeyFilter, register_hotkey
 
-                run_windows_hotkey(self._bridge)
-            except Exception as exc:
-                print(f"bidi-popup: Windows hotkey unavailable ({exc})", file=sys.stderr)
-                threading.Event().wait()
+        # Hidden HWND that receives WM_HOTKEY (no low-level keyboard hook).
+        self._hotkey_host = QWidget()
+        self._hotkey_host.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen, True)
+        self._hotkey_host.createWinId()
+        hwnd = int(self._hotkey_host.winId())
+        if not register_hotkey(hwnd):
+            notify("Bidi Popup", "نتوانست میانبر Ctrl+Shift+Space را ثبت کند")
+            print("bidi-popup: RegisterHotKey failed", file=sys.stderr)
             return
+        self._hotkey_filter = WinHotkeyFilter(self._bridge)
+        self._app.installNativeEventFilter(self._hotkey_filter)
 
-        # --- Linux path (unchanged behavior) ---
+    def _teardown_windows_hotkey(self) -> None:
+        if self._hotkey_host is None:
+            return
+        try:
+            from bidi_platform.hotkey_win import unregister_hotkey
+
+            unregister_hotkey(int(self._hotkey_host.winId()))
+        except Exception:
+            pass
+
+    def _run_listeners(self) -> None:
+        # --- Linux path only (unchanged behavior) ---
         TriggerServer(self._bridge.activated.emit).start()
 
         if is_x11():
@@ -193,9 +216,29 @@ class BidiPopupApp:
             text = get_selected_text()
             anchor = QPoint(QCursor.pos())
 
+            if not text and is_windows():
+                # Fallback: ask for a manual Ctrl+C, then re-read clipboard.
+                if self._win_clipboard_fallback:
+                    clip = (self._app.clipboard().text() or "").strip()
+                    self._win_clipboard_fallback = False
+                    if clip:
+                        text = clip
+                    else:
+                        notify("Bidi Popup", "کلیپ‌بورد خالی بود — متن را Ctrl+C کن و دوباره میانبر را بزن")
+                        return
+                else:
+                    self._win_clipboard_fallback = True
+                    notify(
+                        "Bidi Popup",
+                        "خودکار کپی نشد. متن را با Ctrl+C کپی کن، بعد دوباره Ctrl+Shift+Space را بزن",
+                    )
+                    return
+
             if not text:
                 notify("Bidi Popup", "متنی انتخاب نشده — اول متن را highlight کن")
                 return
+
+            self._win_clipboard_fallback = False
 
             if self._popup is not None and self._popup.isVisible():
                 self._popup.set_text(text, anchor=anchor)

@@ -1,64 +1,80 @@
-"""Global hotkey listener for Windows (pynput).
+"""Windows global hotkey via RegisterHotKey (no low-level keyboard hook).
 
-Uses Ctrl+Shift+Space — NOT Ctrl+Alt+Space — because Alt+Space opens the
-Windows system menu and steals focus from the browser, which made every
-selection method return empty.
+pynput's WH_KEYBOARD_LL hook was intercepting our injected Ctrl+C, so Chrome
+never received the copy even with correct focus (Chrome_WidgetWin_1).
+RegisterHotKey avoids that conflict entirely.
 """
 
 from __future__ import annotations
 
-import time
+import ctypes
+from ctypes import wintypes
 from typing import TYPE_CHECKING
+
+from PyQt6.QtCore import QAbstractNativeEventFilter
 
 if TYPE_CHECKING:
     from listener import HotkeyBridge
 
-DEBOUNCE_SEC = 0.4
 WINDOWS_HOTKEY_LABEL = "Ctrl+Shift+Space"
 
+MOD_CONTROL = 0x0002
+MOD_SHIFT = 0x0004
+MOD_NOREPEAT = 0x4000
+WM_HOTKEY = 0x0312
+VK_SPACE = 0x20
+HOTKEY_ID = 0xB1D1  # arbitrary app id
 
-def run_windows_hotkey(bridge: "HotkeyBridge") -> None:
-    from pynput import keyboard
 
-    from bidi_platform.selection_win import note_foreground_window
+class MSG(ctypes.Structure):
+    _fields_ = [
+        ("hwnd", wintypes.HWND),
+        ("message", wintypes.UINT),
+        ("wParam", wintypes.WPARAM),
+        ("lParam", wintypes.LPARAM),
+        ("time", wintypes.DWORD),
+        ("pt", wintypes.POINT),
+    ]
 
-    ctrl_keys = frozenset({keyboard.Key.ctrl_l, keyboard.Key.ctrl_r})
-    shift_keys = frozenset({keyboard.Key.shift_l, keyboard.Key.shift_r})
-    pressed: set[keyboard.Key | keyboard.KeyCode] = set()
-    combo_was_active = False
-    last_trigger = 0.0
 
-    def ctrl_held() -> bool:
-        return bool(pressed & ctrl_keys)
+def register_hotkey(hwnd: int) -> bool:
+    user32 = ctypes.windll.user32
+    # Clear any previous registration on this id.
+    user32.UnregisterHotKey(hwnd, HOTKEY_ID)
+    return bool(
+        user32.RegisterHotKey(
+            hwnd,
+            HOTKEY_ID,
+            MOD_CONTROL | MOD_SHIFT | MOD_NOREPEAT,
+            VK_SPACE,
+        )
+    )
 
-    def shift_held() -> bool:
-        return bool(pressed & shift_keys)
 
-    def combo_active() -> bool:
-        return ctrl_held() and shift_held() and keyboard.Key.space in pressed
+def unregister_hotkey(hwnd: int) -> None:
+    ctypes.windll.user32.UnregisterHotKey(hwnd, HOTKEY_ID)
 
-    def on_press(key: keyboard.Key | keyboard.KeyCode | None) -> None:
-        nonlocal combo_was_active
-        if key is None:
-            return
-        pressed.add(key)
-        combo_was_active = combo_active()
 
-    def on_release(key: keyboard.Key | keyboard.KeyCode | None) -> None:
-        nonlocal combo_was_active, last_trigger
-        if key is None:
-            return
-        was_active = combo_was_active
-        pressed.discard(key)
-        active = combo_active()
-        if was_active and not active:
-            now = time.monotonic()
-            if now - last_trigger >= DEBOUNCE_SEC:
-                last_trigger = now
-                # Capture the app that had focus *before* Qt handles the signal.
-                note_foreground_window()
-                bridge.activated.emit()
-        combo_was_active = active
+class WinHotkeyFilter(QAbstractNativeEventFilter):
+    """Receives WM_HOTKEY on the Qt event loop."""
 
-    with keyboard.Listener(on_press=on_press, on_release=on_release) as listener:
-        listener.join()
+    def __init__(self, bridge: "HotkeyBridge") -> None:
+        super().__init__()
+        self._bridge = bridge
+
+    def nativeEventFilter(self, eventType, message):  # noqa: N802
+        et = eventType if isinstance(eventType, (bytes, bytearray)) else bytes(eventType)
+        if et not in (b"windows_generic_MSG", b"windows_dispatcher_MSG"):
+            return False, 0
+        try:
+            msg = MSG.from_address(int(message))
+        except (TypeError, ValueError, OverflowError):
+            return False, 0
+        if msg.message != WM_HOTKEY or int(msg.wParam) != HOTKEY_ID:
+            return False, 0
+
+        from bidi_platform.selection_win import note_foreground_window
+
+        note_foreground_window()
+        self._bridge.activated.emit()
+        return True, 0

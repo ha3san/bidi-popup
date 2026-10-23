@@ -3,7 +3,7 @@
 ;   dist\BidiPopup\BidiPopup.exe  (+ deps)
 
 #define MyAppName "Bidi Popup"
-#define MyAppVersion "1.2.3"
+#define MyAppVersion "1.2.4"
 #define MyAppPublisher "ha3san"
 #define MyAppURL "https://github.com/ha3san/bidi-popup"
 #define MyAppExeName "BidiPopup.exe"
